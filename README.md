@@ -10,7 +10,7 @@ FrankenAsync dispatches PHP scripts to separate FrankenPHP threads for true para
 
 ### Talks
 
-- [PHP 150x Faster, Still Legacy-Friendly](https://confoo.ca/en/2026/session/php-150x-faster-still-legacy-friendly) — ConFoo 2026
+- [PHP 150x Faster, Still Legacy-Friendly](https://confoo.ca/en/2026/session/php-150x-faster-still-legacy-friendly) — ConFoo 2026 ([slides](https://gamma.app/docs/PHP-150x-Faster-Still-Legacy-Friendly-wozvte56hx7i0ku))
 - [php[tek] 2026](https://phptek.io/) — Chicago, May 19-21
 
 ## How It Works
@@ -220,7 +220,7 @@ frankenasync/
 |   +-- util.h           # Exception declarations
 |-- examples/            # PHP demo pages
 |   |-- index.php        # Main demo (thread dispatch)
-|   |-- lib/
+|    |-- lib/
 |   |   +-- async.php    # Structured concurrency helpers (race, retry, throttle)
 |   +-- include/
 |       +-- task.php     # Single blocking task
