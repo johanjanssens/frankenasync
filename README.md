@@ -1,8 +1,8 @@
 # FrankenAsync
 
-Concurrent PHP — [FrankenPHP](https://frankenphp.dev) threads with a Go semaphore sliding window, 150x+ speedup with standard blocking PHP code.
+Concurrent PHP using [FrankenPHP](https://frankenphp.dev) threads with a Go semaphore sliding window, 150x+ speedup with standard blocking PHP code.
 
-FrankenAsync dispatches PHP scripts to separate FrankenPHP threads for true parallelism. A Go semaphore controls the sliding window — tasks beyond the limit queue and execute as slots free up. Works with ANY blocking PHP code, no rewrites needed.
+FrankenAsync dispatches PHP scripts as internal subrequests to separate FrankenPHP threads — no HTTP overhead, true parallelism. A Go semaphore controls the sliding window — tasks beyond the limit queue and execute as slots free up. Works with ANY blocking PHP code, no rewrites needed.
 
 ![FrankenAsync Demo](screenshot.png)
 
@@ -16,9 +16,25 @@ FrankenAsync dispatches PHP scripts to separate FrankenPHP threads for true para
 ## How It Works
 
 ```
-PHP  ->  Script::async()  ->  Go task manager  ->  FrankenPHP threads
-                               semaphore queue     parallel execution
-     <-  Future::awaitAll()  <-  collect results  <-  JSON responses
+               PHP / Script::async()    Go / FrankenAsync         Go / FrankenPHP
+
+              ┌────────────────────► ┌─────────────────────┐    ┌─────────────────┐
+              │                      │                     │    │                 │
+              │   task 1 ───────────►│   ╔═══╗  ╔═══╗      │    │   thread 1  ●   │
+              │                      │   ║ 1 ║  ║ 2 ║   ───┼───►│   thread 2  ●   │
+              │   task 2 ───────────►│   ╚═══╝  ╚═══╝      │    │   thread 3  ●   │
+              │                      │                     │    │   thread 4  ●   │
+     PHP      │   task 3 ───────────►│    running (W)      │    │                 │
+  ──────────  │                      │                     │    └────────┬────────┘
+  index.php   │    ...               │   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄    │             │
+              │                      │   ╎ 3 ╎ 4 ╎ ... ╎   │             │
+              │   task N ───────────►│                     │             │
+              │                      │    queued (N-W)     │             │
+              │                      │                     │             │
+              │                      └─────────────────────┘             │
+              │                                                          │
+              │◄─────────────────  Future::awaitAll()  ◄─────────────────┘
+              │                     collect results
 ```
 
 1. **PHP** calls `Script::async()` for each task
@@ -26,16 +42,60 @@ PHP  ->  Script::async()  ->  Go task manager  ->  FrankenPHP threads
 3. **FrankenPHP** executes each task on a separate thread
 4. **PHP** calls `Future::awaitAll()` to collect all results
 
+### Composition — Orchestrate, Don't Rewrite
+
+The entire concurrency model builds on just two primitives — `Script::async()` and `Future`. From there, higher-level patterns are plain PHP generators that compose on top. No coroutine runtime, no event loop, no framework — just generators and threads.
+
+```
+  Script::async()  +  Future
+         │
+         ▼
+  ┌──────┬──────────┬──────────┐
+  │      │          │          │
+ race  retry    parallel   throttle
+```
+
+Your existing PHP scripts — blocking DB queries, API calls, file I/O — stay exactly as they are. You add a thin orchestration layer on top:
+
+```php
+// product.php, reviews.php, stock.php — existing scripts, unchanged
+function productPage(int $id): \Generator {
+    [$product, $reviews, $stock] = yield from parallel([
+        fn() => (new Script('product.php'))->async(['id' => $id]),
+        fn() => (new Script('reviews.php'))->async(['id' => $id]),
+        fn() => (new Script('stock.php'))->async(['id' => $id]),
+    ], concurrency: 3);
+
+    yield compact('product', 'reviews', 'stock');
+}
+
+// cart.php, stripe.php, paypal.php — existing scripts, unchanged
+function checkout(int $cartId): \Generator {
+    $cart = yield from retry(3,
+        fn() => (new Script('cart.php'))->async(['id' => $cartId]));
+
+    $payment = yield from race([
+        (new Script('stripe.php'))->async($cart),
+        (new Script('paypal.php'))->async($cart),
+    ], "10s");
+
+    yield $payment;
+}
+```
+
+Mix, nest, and chain patterns freely — retry inside a race, throttle with parallel batches — using standard PHP control flow. The scripts are legacy. The orchestration is new. **You don't rewrite your PHP — you compose it.** The more code paths you can compose into parallel execution, the faster your application becomes — without changing a single line of existing code.
+
 ## FrankenPHP Fork
 
-FrankenAsync requires a [fork of FrankenPHP](https://github.com/nicholasgasior/frankenphp) that adds APIs not available in upstream FrankenPHP. The `Frankenphp\Script` and `Frankenphp\Async\Future` PHP classes are implemented as a C extension that calls back into Go to reach the per-request task manager — upstream FrankenPHP doesn't expose the thread or extension plumbing to make that possible.
+FrankenAsync requires a [fork of FrankenPHP](https://github.com/nicholasgasior/frankenphp) that adds APIs not available in upstream FrankenPHP. The `Frankenphp\Script` and `Frankenphp\Async\Future` PHP classes are implemented as a C extension that calls back into Go to reach the per-request task manager — upstream FrankenPHP doesn't expose the thread plumbing to make that possible.
+
+FrankenPHP already provides `frankenphp.RegisterExtension(ptr)` to register C `zend_module_entry` extensions — FrankenAsync uses this to register the `Script` and `Future` PHP classes.
 
 The fork adds:
 
 | API | Language | Purpose |
 |---|---|---|
 | `frankenphp.Thread(index)` | Go | Retrieves a PHP thread by index, returning its `*http.Request` — which carries the request context where the task manager is stored |
-| `frankenphp.RegisterExtension(ptr)` | Go | Registers a C `zend_module_entry` as a PHP extension during `init()`, so the `Script` and `Future` classes exist in PHP |
 | `frankenphp_thread_index()` | C | Returns the current thread's index from C code, so PHP extension methods can call `Thread(index)` to get back into Go |
 
 The call chain:
@@ -53,7 +113,7 @@ PHP: (new Script('task.php'))->async(['id' => 1])
 The fork is referenced via a `replace` directive in `go.mod`:
 
 ```
-replace github.com/dunglas/frankenphp v1.9.0 => ../frankenphp
+replace github.com/dunglas/frankenphp v1.11.3 => ../frankenphp
 ```
 
 ## Quick Start
@@ -72,7 +132,7 @@ make php     # Download static-php-cli + build PHP 8.3 (ZTS, embed)
 make env     # Generate env.yaml from the PHP build
 ```
 
-This builds a minimal PHP with the extensions needed for the demo (no Swow). The PHP build is cached in `build/.php/` — subsequent runs skip the build if `libphp.a` exists.
+This builds a minimal PHP with the extensions needed for the demo. The PHP build is cached in `build/.php/` — subsequent runs skip the build if `libphp.a` exists.
 
 To rebuild from scratch:
 
@@ -170,7 +230,7 @@ Future::awaitAny($tasks, "30s"); // Wait for first
 
 ### Structured Concurrency Helpers
 
-Composable generators on top of `Script::async()` and `Future` — no Swow, no coroutines:
+Composable generators on top of `Script::async()` and `Future` — no coroutines, no event loop ([source](examples/lib/async.php)):
 
 ```php
 use function Frankenphp\Async\{race, retry, parallel, throttle};

@@ -101,7 +101,7 @@ queuing transparently.
 
 ## Structured Concurrency Helpers
 
-Composable generators on top of `Script::async()` and `Future` — no Swow, no coroutines:
+Composable generators on top of `Script::async()` and `Future` — no coroutines, no event loop:
 
 ```php
 use function Frankenphp\Async\{race, retry, parallel, throttle};
@@ -127,6 +127,39 @@ foreach (throttle($ids, 'task.php', batch: 50) as $result) {
 Generators are the perfect fit — `throttle` streams results batch by batch instead of collecting
 everything into memory. `yield from` lets you compose helpers together. No event loop, no
 framework — just PHP.
+
+## Composition — Orchestrate, Don't Rewrite
+
+Your existing PHP scripts — blocking DB queries, API calls, file I/O — stay exactly as they are.
+You add a thin orchestration layer on top:
+
+```php
+// product.php, reviews.php, stock.php — existing scripts, unchanged
+function productPage(int $id): \Generator {
+    [$product, $reviews, $stock] = yield from parallel([
+        fn() => (new Script('product.php'))->async(['id' => $id]),
+        fn() => (new Script('reviews.php'))->async(['id' => $id]),
+        fn() => (new Script('stock.php'))->async(['id' => $id]),
+    ], concurrency: 3);
+
+    yield compact('product', 'reviews', 'stock');
+}
+
+// cart.php, stripe.php, paypal.php — existing scripts, unchanged
+function checkout(int $cartId): \Generator {
+    $cart = yield from retry(3,
+        fn() => (new Script('cart.php'))->async(['id' => $cartId]));
+
+    $payment = yield from race([
+        (new Script('stripe.php'))->async($cart),
+        (new Script('paypal.php'))->async($cart),
+    ], "10s");
+
+    yield $payment;
+}
+```
+
+The scripts are legacy. The orchestration is new. You don't rewrite your PHP — you compose it.
 
 ## Key Takeaway
 
