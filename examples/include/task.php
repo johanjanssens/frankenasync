@@ -1,9 +1,8 @@
 <?php
 /**
- * Single blocking task — no coroutines.
+ * Single blocking task.
  *
  * Each task runs on its own FrankenPHP thread with blocking I/O.
- * Used when coroutines=0 to demonstrate pure-thread parallelism.
  */
 
 $commentId = (int)($_SERVER["APP_ID"] ?? 1);

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bench.sh — Automated test & benchmark for FrankenAsync two-level concurrency
+# bench.sh — Automated test & benchmark for FrankenAsync thread concurrency
 #
 # Usage:
 #   ./bench.sh              # build, start server, run tests, stop server
@@ -57,7 +57,7 @@ trap cleanup EXIT
 wait_for_server() {
     local max_wait=15
     local waited=0
-    while ! curl -sf "${BASE}/?n=1&threads=1&local=1" >/dev/null 2>&1; do
+    while ! curl -sf "${BASE}/?n=1&local=1" >/dev/null 2>&1; do
         sleep 1
         waited=$((waited + 1))
         if [ "$waited" -ge "$max_wait" ]; then
@@ -107,7 +107,7 @@ if [ "$BUILD" -eq 1 ]; then
     log "Server ready"
 else
     log "Skipping build (--no-build)"
-    if ! curl -sf "${BASE}/?n=1&threads=1&local=1" >/dev/null 2>&1; then
+    if ! curl -sf "${BASE}/?n=1&local=1" >/dev/null 2>&1; then
         echo -e "${RED}Server not running on ${BASE}${NC}"
         exit 1
     fi
@@ -115,14 +115,14 @@ fi
 
 echo ""
 echo -e "${BOLD}═══════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}  FrankenAsync — Two-Level Concurrency Tests${NC}"
+echo -e "${BOLD}  FrankenAsync — Thread Concurrency Tests${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════════════════${NC}"
 echo ""
 
 # ─── Test 1: Basic smoke test ────────────────────────────────────────────────
 
-log "Test 1: Smoke test (n=5, threads=2)"
-if fetch "${BASE}/?n=5&threads=2&local=1"; then
+log "Test 1: Smoke test (n=5)"
+if fetch "${BASE}/?n=5&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 5 ]; then
         pass "5 cards rendered"
@@ -133,35 +133,13 @@ else
     fail "Request failed (HTTP $HTTP_CODE)"
 fi
 
-# ─── Test 2: Single thread, all coroutines ───────────────────────────────────
+# ─── Test 2: Multiple tasks ───────────────────────────────────────────────────
 
-log "Test 2: Single thread, coroutines only (n=10, threads=1)"
-if fetch "${BASE}/?n=10&threads=1&local=1"; then
-    cards=$(count_matches 'data-load-time=')
-    if [ "$cards" -eq 10 ]; then
-        pass "10 cards rendered with 1 thread"
-    else
-        fail "Expected 10 cards, got $cards"
-    fi
-
-    # With 1 thread and 10 tasks sleeping 100-500ms each, wall clock should be
-    # well under 10*500ms=5000ms thanks to coroutines (expect ~500ms).
-    if [ "$WALL_MS" -lt 3000 ]; then
-        pass "Wall clock ${WALL_MS}ms < 3000ms (coroutines working)"
-    else
-        fail "Wall clock ${WALL_MS}ms >= 3000ms (coroutines may not be working)"
-    fi
-else
-    fail "Request failed (HTTP $HTTP_CODE)"
-fi
-
-# ─── Test 3: Multiple threads with coroutines ────────────────────────────────
-
-log "Test 3: Two-level concurrency (n=50, threads=5)"
-if fetch "${BASE}/?n=50&threads=5&local=1"; then
+log "Test 2: Multiple tasks (n=50)"
+if fetch "${BASE}/?n=50&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 50 ]; then
-        pass "50 cards rendered across 5 threads"
+        pass "50 cards rendered"
     else
         fail "Expected 50 cards, got $cards"
     fi
@@ -175,33 +153,26 @@ else
     fail "Request failed (HTTP $HTTP_CODE)"
 fi
 
-# ─── Test 4: Default params (n=100, threads=10) ─────────────────────────────
+# ─── Test 3: Default params (n=100) ──────────────────────────────────────────
 
-log "Test 4: Default params (n=100, threads=10)"
-if fetch "${BASE}/?n=100&threads=10&local=1"; then
+log "Test 3: Default params (n=100)"
+if fetch "${BASE}/?n=100&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 100 ]; then
         pass "100 cards rendered"
     else
         fail "Expected 100 cards, got $cards"
     fi
-
-    # Footer should show thread count
-    if echo "$BODY" | grep -q "10 threads"; then
-        pass "Footer shows 10 threads"
-    else
-        skip "Footer thread count not found (non-critical)"
-    fi
 else
     fail "Request failed (HTTP $HTTP_CODE)"
 fi
 
-# ─── Test 5: Stability — repeated requests ──────────────────────────────────
+# ─── Test 4: Stability — repeated requests ──────────────────────────────────
 
-log "Test 5: Stability (20 repeated requests, n=20, threads=5)"
+log "Test 4: Stability (20 repeated requests, n=20)"
 stable=0
 for i in $(seq 1 20); do
-    if fetch "${BASE}/?n=20&threads=5&local=1"; then
+    if fetch "${BASE}/?n=20&local=1"; then
         cards=$(count_matches 'data-load-time=')
         if [ "$cards" -eq 20 ]; then
             stable=$((stable + 1))
@@ -214,10 +185,10 @@ else
     fail "Only $stable/20 requests succeeded"
 fi
 
-# ─── Test 6: Edge case — n=1 ────────────────────────────────────────────────
+# ─── Test 5: Edge case — n=1 ────────────────────────────────────────────────
 
-log "Test 6: Edge case (n=1, threads=1)"
-if fetch "${BASE}/?n=1&threads=1&local=1"; then
+log "Test 5: Edge case (n=1)"
+if fetch "${BASE}/?n=1&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 1 ]; then
         pass "1 card rendered"
@@ -228,13 +199,13 @@ else
     fail "Request failed (HTTP $HTTP_CODE)"
 fi
 
-# ─── Test 7: threads > n (should clamp) ─────────────────────────────────────
+# ─── Test 6: Small task count ────────────────────────────────────────────────
 
-log "Test 7: More threads than tasks (n=3, threads=10)"
-if fetch "${BASE}/?n=3&threads=10&local=1"; then
+log "Test 6: Small task count (n=3)"
+if fetch "${BASE}/?n=3&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 3 ]; then
-        pass "3 cards rendered (threads clamped to 3)"
+        pass "3 cards rendered"
     else
         fail "Expected 3 cards, got $cards"
     fi
@@ -242,11 +213,11 @@ else
     fail "Request failed (HTTP $HTTP_CODE)"
 fi
 
-# ─── Test 8: Speedup benchmark ──────────────────────────────────────────────
+# ─── Test 7: Speedup benchmark ──────────────────────────────────────────────
 
-log "Test 8: Speedup — aggregated IO vs wall clock (n=500, threads=10)"
+log "Test 7: Speedup — aggregated IO vs wall clock (n=500)"
 
-if fetch "${BASE}/?n=500&threads=10&local=1"; then
+if fetch "${BASE}/?n=500&local=1"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 500 ]; then
         pass "500 cards rendered"
@@ -275,11 +246,11 @@ else
     fail "Could not measure speedup"
 fi
 
-# ─── Test 9: HTTP mode — local API endpoint ──────────────────────────────────
+# ─── Test 8: HTTP mode — local API endpoint ──────────────────────────────────
 
-log "Test 9: HTTP mode with local API (n=100, threads=10, local=0)"
+log "Test 8: HTTP mode with local API (n=100, local=0)"
 
-if fetch "${BASE}/?n=100&threads=10&local=0"; then
+if fetch "${BASE}/?n=100&local=0"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 100 ]; then
         pass "100 cards rendered via HTTP"
@@ -304,11 +275,11 @@ else
     fail "Could not measure HTTP speedup"
 fi
 
-# ─── Test 10: HTTP mode at scale ─────────────────────────────────────────────
+# ─── Test 9: HTTP mode at scale ─────────────────────────────────────────────
 
-log "Test 10: HTTP mode at scale (n=500, threads=10, local=0)"
+log "Test 9: HTTP mode at scale (n=500, local=0)"
 
-if fetch "${BASE}/?n=500&threads=10&local=0"; then
+if fetch "${BASE}/?n=500&local=0"; then
     cards=$(count_matches 'data-load-time=')
     if [ "$cards" -eq 500 ]; then
         pass "500 cards rendered via HTTP"

@@ -1,7 +1,7 @@
 /**
  * FrankenAsync PHP Extension
  *
- * Registers Frankenphp\Script and Frankenphp\Async\Task classes.
+ * Registers Frankenphp\Script and Frankenphp\Async\Future classes.
  * Minimal extraction from Galvani's phpmodule.
  */
 
@@ -34,24 +34,24 @@
 static zend_class_entry *script_ce = NULL;
 static zend_object_handlers script_object_handlers;
 
-/* AsyncTask class */
-static zend_class_entry *asynctask_ce;
-static zend_class_entry *asynctask_status_ce;
-static zend_object_handlers asynctask_object_handlers;
+/* AsyncFuture class */
+static zend_class_entry *asyncfuture_ce;
+static zend_class_entry *asyncfuture_status_ce;
+static zend_object_handlers asyncfuture_object_handlers;
 
-/* AsyncTask object structure */
-typedef struct _frankenasync_asynctask_object {
+/* AsyncFuture object structure */
+typedef struct _frankenasync_asyncfuture_object {
     zend_string *task_id;
     zend_object std;
-} frankenasync_asynctask_object;
+} frankenasync_asyncfuture_object;
 
 /* Exception classes */
-static zend_class_entry *asynctask_exception_ce;
-static zend_class_entry *asynctask_timeout_ce;
-static zend_class_entry *asynctask_failed_ce;
-static zend_class_entry *asynctask_notfound_ce;
-static zend_class_entry *asynctask_canceled_ce;
-static zend_class_entry *asynctask_panic_ce;
+static zend_class_entry *asyncfuture_exception_ce;
+static zend_class_entry *asyncfuture_timeout_ce;
+static zend_class_entry *asyncfuture_failed_ce;
+static zend_class_entry *asyncfuture_notfound_ce;
+static zend_class_entry *asyncfuture_canceled_ce;
+static zend_class_entry *asyncfuture_panic_ce;
 
 /* ============================================================================
  * FORWARD DECLARATIONS
@@ -64,13 +64,13 @@ static inline script_object *script_from_obj(zend_object *obj);
 static int build_script_payload(smart_str *json_payload, const char *script_name, HashTable *ini, HashTable *app, HashTable *server);
 static const zend_function_entry script_methods[];
 
-/* AsyncTask */
-static zend_object *asynctask_create_object(zend_class_entry *ce);
-static void asynctask_free_object(zend_object *object);
-static inline frankenasync_asynctask_object *frankenasync_asynctask_from_obj(zend_object *obj);
-static inline void asynctask_throw_exception(const char *error_msg);
-static const zend_function_entry asynctask_methods[];
-static const zend_function_entry asynctask_status_methods[];
+/* AsyncFuture */
+static zend_object *asyncfuture_create_object(zend_class_entry *ce);
+static void asyncfuture_free_object(zend_object *object);
+static inline frankenasync_asyncfuture_object *frankenasync_asyncfuture_from_obj(zend_object *obj);
+static inline void asyncfuture_throw_exception(const char *error_msg);
+static const zend_function_entry asyncfuture_methods[];
+static const zend_function_entry asyncfuture_status_methods[];
 
 /* ============================================================================
  * MODULE LIFECYCLE
@@ -102,9 +102,9 @@ int frankenasync_minit(int type, int module_number) {
         return FAILURE;
     }
 
-    /* Register AsyncTask class */
-    if (frankenasync_asynctask_minit() != SUCCESS) {
-        php_error(E_WARNING, "Failed to register Frankenphp\\Async\\Task class.");
+    /* Register AsyncFuture class */
+    if (frankenasync_asyncfuture_minit() != SUCCESS) {
+        php_error(E_WARNING, "Failed to register Frankenphp\\Async\\Future class.");
         return FAILURE;
     }
 
@@ -370,7 +370,7 @@ PHP_METHOD(Script, async)
         RETURN_THROWS();
     }
 
-    frankenasync_create_asynctask_object(return_value, result.r0);
+    frankenasync_create_asyncfuture_object(return_value, result.r0);
     free(result.r0);
 }
 
@@ -433,7 +433,7 @@ PHP_METHOD(Script, defer)
         RETURN_THROWS();
     }
 
-    frankenasync_create_asynctask_object(return_value, result.r0);
+    frankenasync_create_asyncfuture_object(return_value, result.r0);
     free(result.r0);
 }
 
@@ -505,25 +505,25 @@ static int build_script_payload(smart_str *json_payload, const char *script_name
 }
 
 /* ============================================================================
- * ASYNC TASK CLASS IMPLEMENTATION
+ * ASYNC FUTURE CLASS IMPLEMENTATION
  * ============================================================================ */
 
-int frankenasync_asynctask_minit(void)
+int frankenasync_asyncfuture_minit(void)
 {
     /* Register Status enum first */
-    asynctask_status_ce = zend_register_internal_enum(
-        "Frankenphp\\Async\\Task\\Status", IS_STRING, NULL
+    asyncfuture_status_ce = zend_register_internal_enum(
+        "Frankenphp\\Async\\Future\\Status", IS_STRING, NULL
     );
 
-    if (UNEXPECTED(!asynctask_status_ce)) {
+    if (UNEXPECTED(!asyncfuture_status_ce)) {
         return FAILURE;
     }
 
     /* Register the toString() method on the enum */
     zend_register_functions(
-        asynctask_status_ce,
-        asynctask_status_methods,
-        &asynctask_status_ce->function_table,
+        asyncfuture_status_ce,
+        asyncfuture_status_methods,
+        &asyncfuture_status_ce->function_table,
         MODULE_PERSISTENT
     );
 
@@ -531,89 +531,89 @@ int frankenasync_asynctask_minit(void)
     zval case_value;
 
     ZVAL_STR(&case_value, zend_string_init("deferred",   sizeof("deferred")-1,   1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Deferred", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Deferred", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("pending",   sizeof("pending")-1,   1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Pending", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Pending", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("running",   sizeof("running")-1,   1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Running", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Running", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("completed", sizeof("completed")-1, 1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Completed", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Completed", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("failed",    sizeof("failed")-1,    1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Failed", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Failed", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("canceled",  sizeof("canceled")-1,  1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Canceled", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Canceled", &case_value);
     zval_ptr_dtor(&case_value);
 
     ZVAL_STR(&case_value, zend_string_init("unknown",   sizeof("unknown")-1,   1));
-    zend_enum_add_case_cstr(asynctask_status_ce, "Unknown", &case_value);
+    zend_enum_add_case_cstr(asyncfuture_status_ce, "Unknown", &case_value);
     zval_ptr_dtor(&case_value);
 
     zend_class_entry ce;
 
     /* Register exception hierarchy */
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "Exception", NULL);
-    asynctask_exception_ce = zend_register_internal_class_ex(&ce, zend_ce_exception);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "Exception", NULL);
+    asyncfuture_exception_ce = zend_register_internal_class_ex(&ce, zend_ce_exception);
 
-    zend_declare_property_null(asynctask_exception_ce, "taskId", sizeof("taskId")-1, ZEND_ACC_PROTECTED);
+    zend_declare_property_null(asyncfuture_exception_ce, "taskId", sizeof("taskId")-1, ZEND_ACC_PROTECTED);
 
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "TimeoutException", NULL);
-    asynctask_timeout_ce = zend_register_internal_class_ex(&ce, asynctask_exception_ce);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "FutureTimeoutException", NULL);
+    asyncfuture_timeout_ce = zend_register_internal_class_ex(&ce, asyncfuture_exception_ce);
 
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "FailedException", NULL);
-    asynctask_failed_ce = zend_register_internal_class_ex(&ce, asynctask_exception_ce);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "FutureFailedException", NULL);
+    asyncfuture_failed_ce = zend_register_internal_class_ex(&ce, asyncfuture_exception_ce);
 
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "NotFoundException", NULL);
-    asynctask_notfound_ce = zend_register_internal_class_ex(&ce, asynctask_exception_ce);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "FutureNotFoundException", NULL);
+    asyncfuture_notfound_ce = zend_register_internal_class_ex(&ce, asyncfuture_exception_ce);
 
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "CanceledException", NULL);
-    asynctask_canceled_ce = zend_register_internal_class_ex(&ce, asynctask_exception_ce);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "FutureCanceledException", NULL);
+    asyncfuture_canceled_ce = zend_register_internal_class_ex(&ce, asyncfuture_exception_ce);
 
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Task", "TaskPanicException", NULL);
-    asynctask_panic_ce = zend_register_internal_class_ex(&ce, asynctask_exception_ce);
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async\\Future", "FuturePanicException", NULL);
+    asyncfuture_panic_ce = zend_register_internal_class_ex(&ce, asyncfuture_exception_ce);
 
-    /* Register Task class */
-    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async", "Task", asynctask_methods);
-    asynctask_ce = zend_register_internal_class(&ce);
+    /* Register Future class */
+    INIT_NS_CLASS_ENTRY(ce, "Frankenphp\\Async", "Future", asyncfuture_methods);
+    asyncfuture_ce = zend_register_internal_class(&ce);
 
-    if (UNEXPECTED(!asynctask_ce)) {
+    if (UNEXPECTED(!asyncfuture_ce)) {
         return FAILURE;
     }
 
-    asynctask_ce->create_object = asynctask_create_object;
+    asyncfuture_ce->create_object = asyncfuture_create_object;
 
-    memcpy(&asynctask_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
-    asynctask_object_handlers.offset = XtOffsetOf(frankenasync_asynctask_object, std);
-    asynctask_object_handlers.free_obj = asynctask_free_object;
+    memcpy(&asyncfuture_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    asyncfuture_object_handlers.offset = XtOffsetOf(frankenasync_asyncfuture_object, std);
+    asyncfuture_object_handlers.free_obj = asyncfuture_free_object;
 
     return SUCCESS;
 }
 
-static zend_object *asynctask_create_object(zend_class_entry *ce)
+static zend_object *asyncfuture_create_object(zend_class_entry *ce)
 {
-    frankenasync_asynctask_object *intern = ecalloc(1, sizeof(frankenasync_asynctask_object) + zend_object_properties_size(ce));
+    frankenasync_asyncfuture_object *intern = ecalloc(1, sizeof(frankenasync_asyncfuture_object) + zend_object_properties_size(ce));
 
     zend_object_std_init(&intern->std, ce);
     object_properties_init(&intern->std, ce);
 
     intern->task_id = NULL;
-    intern->std.handlers = &asynctask_object_handlers;
+    intern->std.handlers = &asyncfuture_object_handlers;
 
     return &intern->std;
 }
 
-static void asynctask_free_object(zend_object *object)
+static void asyncfuture_free_object(zend_object *object)
 {
-    frankenasync_asynctask_object *intern = frankenasync_asynctask_from_obj(object);
+    frankenasync_asyncfuture_object *intern = frankenasync_asyncfuture_from_obj(object);
 
     if (EXPECTED(intern->task_id)) {
         zend_string_release(intern->task_id);
@@ -622,7 +622,7 @@ static void asynctask_free_object(zend_object *object)
     zend_object_std_dtor(&intern->std);
 }
 
-PHP_METHOD(Async_Task, __construct)
+PHP_METHOD(Async_Future, __construct)
 {
     zend_string *task_id;
 
@@ -630,15 +630,15 @@ PHP_METHOD(Async_Task, __construct)
         Z_PARAM_STR(task_id)
     ZEND_PARSE_PARAMETERS_END();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
     intern->task_id = zend_string_copy(task_id);
 }
 
-PHP_METHOD(Async_Task, getId)
+PHP_METHOD(Async_Future, getId)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -648,7 +648,7 @@ PHP_METHOD(Async_Task, getId)
     RETURN_STR_COPY(intern->task_id);
 }
 
-PHP_METHOD(Async_Task, await)
+PHP_METHOD(Async_Future, await)
 {
     zval *timeout_param = NULL;
 
@@ -659,7 +659,7 @@ PHP_METHOD(Async_Task, await)
 
     PARSE_TIMEOUT_PARAM(timeout_param)
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -673,7 +673,7 @@ PHP_METHOD(Async_Task, await)
     );
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -704,7 +704,7 @@ PHP_METHOD(Async_Task, await)
     } zend_end_try();
 }
 
-PHP_METHOD(Async_Task, awaitAll)
+PHP_METHOD(Async_Future, awaitAll)
 {
     zval *tasks_array;
     zval *timeout_param = NULL;
@@ -731,16 +731,16 @@ PHP_METHOD(Async_Task, awaitAll)
     zval *task_obj;
     ZEND_HASH_FOREACH_VAL(tasks_ht, task_obj) {
         if (UNEXPECTED(Z_TYPE_P(task_obj) != IS_OBJECT ||
-            !instanceof_function(Z_OBJCE_P(task_obj), asynctask_ce))) {
+            !instanceof_function(Z_OBJCE_P(task_obj), asyncfuture_ce))) {
             zval_ptr_dtor(&task_ids_array);
-            frankenasync_throw_error("All elements must be Task objects");
+            frankenasync_throw_error("All elements must be Future objects");
             RETURN_THROWS();
         }
 
-        frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(task_obj);
+        frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(task_obj);
         if (UNEXPECTED(!intern->task_id)) {
             zval_ptr_dtor(&task_ids_array);
-            frankenasync_throw_error("Task has no task ID");
+            frankenasync_throw_error("Future has no task ID");
             RETURN_THROWS();
         }
 
@@ -762,7 +762,7 @@ PHP_METHOD(Async_Task, awaitAll)
     smart_str_free(&json_task_ids);
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -793,7 +793,7 @@ PHP_METHOD(Async_Task, awaitAll)
     } zend_end_try();
 }
 
-PHP_METHOD(Async_Task, awaitAny)
+PHP_METHOD(Async_Future, awaitAny)
 {
     zval *tasks_array;
     zval *timeout_param = NULL;
@@ -819,16 +819,16 @@ PHP_METHOD(Async_Task, awaitAny)
     zval *task_obj;
     ZEND_HASH_FOREACH_VAL(tasks_ht, task_obj) {
         if (UNEXPECTED(Z_TYPE_P(task_obj) != IS_OBJECT ||
-            !instanceof_function(Z_OBJCE_P(task_obj), asynctask_ce))) {
+            !instanceof_function(Z_OBJCE_P(task_obj), asyncfuture_ce))) {
             zval_ptr_dtor(&task_ids_array);
-            frankenasync_throw_error("All elements must be Task objects");
+            frankenasync_throw_error("All elements must be Future objects");
             RETURN_THROWS();
         }
 
-        frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(task_obj);
+        frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(task_obj);
         if (UNEXPECTED(!intern->task_id)) {
             zval_ptr_dtor(&task_ids_array);
-            frankenasync_throw_error("Task has no task ID");
+            frankenasync_throw_error("Future has no task ID");
             RETURN_THROWS();
         }
 
@@ -850,7 +850,7 @@ PHP_METHOD(Async_Task, awaitAny)
     smart_str_free(&json_task_ids);
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -881,11 +881,11 @@ PHP_METHOD(Async_Task, awaitAny)
     } zend_end_try();
 }
 
-PHP_METHOD(Async_Task, cancel)
+PHP_METHOD(Async_Future, cancel)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -898,7 +898,7 @@ PHP_METHOD(Async_Task, cancel)
     );
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -910,11 +910,11 @@ PHP_METHOD(Async_Task, cancel)
     RETURN_BOOL(1);
 }
 
-PHP_METHOD(Async_Task, getStatus)
+PHP_METHOD(Async_Future, getStatus)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -927,7 +927,7 @@ PHP_METHOD(Async_Task, getStatus)
     );
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -962,7 +962,7 @@ PHP_METHOD(Async_Task, getStatus)
 
     zend_call_method(
         NULL,
-        asynctask_status_ce,
+        asyncfuture_status_ce,
         NULL,
         "from",
         sizeof("from") - 1,
@@ -985,11 +985,11 @@ PHP_METHOD(Async_Task, getStatus)
     RETURN_NULL();
 }
 
-PHP_METHOD(Async_Task, getDuration)
+PHP_METHOD(Async_Future, getDuration)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -1002,7 +1002,7 @@ PHP_METHOD(Async_Task, getDuration)
     );
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -1041,11 +1041,11 @@ PHP_METHOD(Async_Task, getDuration)
     RETURN_NULL();
 }
 
-PHP_METHOD(Async_Task, getError)
+PHP_METHOD(Async_Future, getError)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(ZEND_THIS);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(ZEND_THIS);
 
     if (UNEXPECTED(!intern->task_id)) {
         frankenasync_throw_error("Task ID not set");
@@ -1058,7 +1058,7 @@ PHP_METHOD(Async_Task, getError)
     );
 
     if (UNEXPECTED(!result.r1)) {
-        asynctask_throw_exception(result.r0);
+        asyncfuture_throw_exception(result.r0);
         free(result.r0);
         RETURN_THROWS();
     }
@@ -1091,7 +1091,7 @@ PHP_METHOD(Async_Task, getError)
     RETURN_NULL();
 }
 
-PHP_METHOD(Async_Task_Status, __toString)
+PHP_METHOD(Async_Future_Status, __toString)
 {
     ZEND_PARSE_PARAMETERS_NONE();
 
@@ -1117,21 +1117,21 @@ PHP_METHOD(Async_Task_Status, __toString)
     RETURN_EMPTY_STRING();
 }
 
-static const zend_function_entry asynctask_methods[] = {
-    PHP_ME(Async_Task, __construct, arginfo_asynctask___construct, ZEND_ACC_PRIVATE)
-    PHP_ME(Async_Task, getId, arginfo_asynctask_getId, ZEND_ACC_PUBLIC)
-    PHP_ME(Async_Task, await, arginfo_asynctask_await, ZEND_ACC_PUBLIC)
-    PHP_ME(Async_Task, awaitAll, arginfo_asynctask_awaitAll, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-    PHP_ME(Async_Task, awaitAny, arginfo_asynctask_awaitAny, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
-    PHP_ME(Async_Task, cancel, arginfo_asynctask_cancel, ZEND_ACC_PUBLIC)
-    PHP_ME(Async_Task, getStatus, arginfo_asynctask_getStatus, ZEND_ACC_PUBLIC)
-    PHP_ME(Async_Task, getDuration, arginfo_asynctask_getDuration, ZEND_ACC_PUBLIC)
-    PHP_ME(Async_Task, getError, arginfo_asynctask_getError, ZEND_ACC_PUBLIC)
+static const zend_function_entry asyncfuture_methods[] = {
+    PHP_ME(Async_Future, __construct, arginfo_asyncfuture___construct, ZEND_ACC_PRIVATE)
+    PHP_ME(Async_Future, getId, arginfo_asyncfuture_getId, ZEND_ACC_PUBLIC)
+    PHP_ME(Async_Future, await, arginfo_asyncfuture_await, ZEND_ACC_PUBLIC)
+    PHP_ME(Async_Future, awaitAll, arginfo_asyncfuture_awaitAll, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Async_Future, awaitAny, arginfo_asyncfuture_awaitAny, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+    PHP_ME(Async_Future, cancel, arginfo_asyncfuture_cancel, ZEND_ACC_PUBLIC)
+    PHP_ME(Async_Future, getStatus, arginfo_asyncfuture_getStatus, ZEND_ACC_PUBLIC)
+    PHP_ME(Async_Future, getDuration, arginfo_asyncfuture_getDuration, ZEND_ACC_PUBLIC)
+    PHP_ME(Async_Future, getError, arginfo_asyncfuture_getError, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
-static const zend_function_entry asynctask_status_methods[] = {
-    PHP_ME(Async_Task_Status, __toString, arginfo_asynctask_status___toString, ZEND_ACC_PUBLIC)
+static const zend_function_entry asyncfuture_status_methods[] = {
+    PHP_ME(Async_Future_Status, __toString, arginfo_asyncfuture_status___toString, ZEND_ACC_PUBLIC)
     PHP_FE_END
 };
 
@@ -1139,19 +1139,19 @@ static const zend_function_entry asynctask_status_methods[] = {
  * HELPER FUNCTIONS
  * ============================================================================ */
 
-static inline frankenasync_asynctask_object *frankenasync_asynctask_from_obj(zend_object *obj) {
-    return (frankenasync_asynctask_object *)((char *)(obj) - XtOffsetOf(frankenasync_asynctask_object, std));
+static inline frankenasync_asyncfuture_object *frankenasync_asyncfuture_from_obj(zend_object *obj) {
+    return (frankenasync_asyncfuture_object *)((char *)(obj) - XtOffsetOf(frankenasync_asyncfuture_object, std));
 }
 
-void frankenasync_create_asynctask_object(zval *return_value, const char *task_id)
+void frankenasync_create_asyncfuture_object(zval *return_value, const char *task_id)
 {
-    object_init_ex(return_value, asynctask_ce);
-    frankenasync_asynctask_object *intern = Z_FRANKENASYNC_ASYNCTASK_OBJ_P(return_value);
+    object_init_ex(return_value, asyncfuture_ce);
+    frankenasync_asyncfuture_object *intern = Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(return_value);
     intern->task_id = zend_string_init(task_id, strlen(task_id), 0);
 }
 
-static inline void asynctask_throw_exception(const char *error_msg) {
-    zend_class_entry *exception_ce = asynctask_exception_ce;
+static inline void asyncfuture_throw_exception(const char *error_msg) {
+    zend_class_entry *exception_ce = asyncfuture_exception_ce;
     const char *task_id_str = NULL;
 
     /* Extract task ID if present */
@@ -1161,15 +1161,15 @@ static inline void asynctask_throw_exception(const char *error_msg) {
 
     /* Determine exception type */
     if (strstr(error_msg, "task timed out")) {
-        exception_ce = asynctask_timeout_ce;
+        exception_ce = asyncfuture_timeout_ce;
     } else if (strstr(error_msg, "task not found")) {
-        exception_ce = asynctask_notfound_ce;
+        exception_ce = asyncfuture_notfound_ce;
     } else if (strstr(error_msg, "task canceled")) {
-        exception_ce = asynctask_canceled_ce;
+        exception_ce = asyncfuture_canceled_ce;
     } else if (strstr(error_msg, "task panicked")) {
-        exception_ce = asynctask_panic_ce;
+        exception_ce = asyncfuture_panic_ce;
     } else if (strstr(error_msg, "task failed")) {
-        exception_ce = asynctask_failed_ce;
+        exception_ce = asyncfuture_failed_ce;
     }
 
     zend_throw_exception(exception_ce, error_msg, 0);

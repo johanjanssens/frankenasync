@@ -68,7 +68,7 @@ func newResponseRecorder() *responseRecorder {
 	}
 }
 
-func (r *responseRecorder) Header() http.Header     { return r.headerMap }
+func (r *responseRecorder) Header() http.Header { return r.headerMap }
 func (r *responseRecorder) Write(b []byte) (int, error) {
 	if !r.wrote {
 		r.wrote = true
@@ -434,7 +434,7 @@ func go_asynctask_info(threadIndex C.uintptr_t, task_id *C.char) (*C.char, C.boo
 	ctx := thread.Request.Context()
 	tasks := asynctask.FromContext(ctx)
 
-	taskData, err := tasks.Task(asynctask.ID(xidTaskID))
+	taskData, err := tasks.Future(asynctask.ID(xidTaskID))
 	if err != nil {
 		if errors.Is(err, asynctask.ErrTaskNotFound) {
 			return nil, C.bool(true)

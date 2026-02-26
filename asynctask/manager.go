@@ -38,8 +38,8 @@ type (
 	// Status represents the current state of a task
 	Status int
 
-	// Task holds the data of an async task
-	Task struct {
+	// Future holds the result of an async task
+	Future struct {
 		ID       ID            `json:"-"`
 		Result   any           `json:"-"`
 		Time     time.Time     `json:"-"`
@@ -60,7 +60,7 @@ type (
 	// task lifecycle tracking, and graceful shutdown. All operations are thread-safe.
 	Manager struct {
 		tasks        sync.Map // taskID -> *asyncTask or *deferredTask
-		tasksResult  sync.Map // taskID -> Task
+		tasksResult  sync.Map // taskID -> Future
 		tasksCancel  sync.Map // taskID -> context.CancelFunc
 		taskStatuses sync.Map // taskID -> Status
 
@@ -86,7 +86,7 @@ type (
 	}
 
 	asyncTask struct {
-		result Task
+		result Future
 		done   chan struct{} // closed when task finishes
 		once   sync.Once
 	}
@@ -230,7 +230,7 @@ func (tm *Manager) Async(ctx context.Context, runnable Runnable) ID {
 	select {
 	case tm.workerSemaphore <- struct{}{}:
 	case <-ctx.Done():
-		t.result = Task{ID: taskID, Error: fmt.Errorf("%w", ErrTaskCanceled)}
+		t.result = Future{ID: taskID, Error: fmt.Errorf("%w", ErrTaskCanceled)}
 		close(t.done)
 		tm.taskStatuses.Store(taskID, StatusCanceled)
 		return taskID
@@ -248,7 +248,7 @@ func (tm *Manager) Async(ctx context.Context, runnable Runnable) ID {
 
 		defer func() {
 			if r := recover(); r != nil {
-				t.result = Task{
+				t.result = Future{
 					ID:       taskID,
 					Error:    fmt.Errorf("%w: %v", ErrTaskPanicked, r),
 					Time:     start,
@@ -271,7 +271,7 @@ func (tm *Manager) Async(ctx context.Context, runnable Runnable) ID {
 			err = fmt.Errorf("%w: %v", ErrTaskCanceled, taskCtx.Err())
 		}
 
-		t.result = Task{
+		t.result = Future{
 			ID:       taskID,
 			Result:   result,
 			Error:    err,
@@ -296,7 +296,7 @@ func (tm *Manager) Defer(ctx context.Context, runnable Runnable) ID {
 		tm.mu.Unlock()
 		// Return canceled task immediately if shutting down
 		t := &asyncTask{done: make(chan struct{})}
-		t.result = Task{ID: taskID, Error: ErrTaskCanceled}
+		t.result = Future{ID: taskID, Error: ErrTaskCanceled}
 		close(t.done)
 		tm.tasks.Store(taskID, t)
 		tm.taskStatuses.Store(taskID, StatusCanceled)
@@ -320,10 +320,10 @@ func (tm *Manager) Defer(ctx context.Context, runnable Runnable) ID {
 // Await blocks until task completes or ctx canceled. Returns cached result
 // for completed tasks. Idempotent - multiple calls return identical results.
 // Deferred tasks are promoted to async execution on first await.
-func (tm *Manager) Await(ctx context.Context, taskID ID) (Task, error) {
+func (tm *Manager) Await(ctx context.Context, taskID ID) (Future, error) {
 	value, ok := tm.tasks.Load(taskID)
 	if !ok {
-		return Task{}, ErrTaskNotFound
+		return Future{}, ErrTaskNotFound
 	}
 
 	// Check if it's a deferred task and promote it to async
@@ -356,21 +356,21 @@ func (tm *Manager) Await(ctx context.Context, taskID ID) (Task, error) {
 		tm.Cancel(taskID)
 		// Check if it was a deadline exceeded (timeout) vs cancellation
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return Task{}, fmt.Errorf("task %s: %w", taskID.String(), ErrTaskTimeout)
+			return Future{}, fmt.Errorf("task %s: %w", taskID.String(), ErrTaskTimeout)
 		}
-		return Task{}, fmt.Errorf("task %s: %w: %v", taskID.String(), ErrTaskCanceled, ctx.Err())
+		return Future{}, fmt.Errorf("task %s: %w: %v", taskID.String(), ErrTaskCanceled, ctx.Err())
 	}
 }
 
 // AwaitAll blocks until all tasks complete or ctx canceled. Returns results
 // in same order as taskIDs. Cancels all tasks if ctx canceled. Idempotent.
-func (tm *Manager) AwaitAll(ctx context.Context, taskIDs []ID) ([]Task, error) {
+func (tm *Manager) AwaitAll(ctx context.Context, taskIDs []ID) ([]Future, error) {
 	if len(taskIDs) == 0 {
 		return nil, nil
 	}
 
 	var (
-		tasks = make([]Task, len(taskIDs))
+		tasks = make([]Future, len(taskIDs))
 		errs  = make(chan error, len(taskIDs))
 		wg    sync.WaitGroup
 	)
@@ -428,12 +428,12 @@ func (tm *Manager) AwaitAll(ctx context.Context, taskIDs []ID) ([]Task, error) {
 
 // AwaitAny returns first task to complete among taskIDs. Cancels remaining
 // tasks once first completes. Returns immediately on first completion.
-func (tm *Manager) AwaitAny(ctx context.Context, taskIDs []ID) (Task, error) {
+func (tm *Manager) AwaitAny(ctx context.Context, taskIDs []ID) (Future, error) {
 	if len(taskIDs) == 0 {
-		return Task{}, nil
+		return Future{}, nil
 	}
 
-	taskChan := make(chan Task, len(taskIDs))
+	taskChan := make(chan Future, len(taskIDs))
 	errChan := make(chan error, len(taskIDs))
 	cancelCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -472,7 +472,7 @@ func (tm *Manager) AwaitAny(ctx context.Context, taskIDs []ID) (Task, error) {
 			tm.Cancel(taskID)
 		}
 
-		return Task{}, err
+		return Future{}, err
 
 	case <-ctx.Done():
 		cancel()
@@ -483,9 +483,9 @@ func (tm *Manager) AwaitAny(ctx context.Context, taskIDs []ID) (Task, error) {
 		}
 		// Check if it was a deadline exceeded (timeout) vs cancellation
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return Task{}, fmt.Errorf("%w", ErrTaskTimeout)
+			return Future{}, fmt.Errorf("%w", ErrTaskTimeout)
 		}
-		return Task{}, fmt.Errorf("%w: %v", ErrTaskCanceled, ctx.Err())
+		return Future{}, fmt.Errorf("%w: %v", ErrTaskCanceled, ctx.Err())
 	}
 }
 
@@ -509,13 +509,13 @@ func (tm *Manager) Cancel(taskID ID) bool {
 	tm.tasksResult.Delete(taskID)
 	tm.tasks.Delete(taskID)
 
-	tm.logger.Debug("Task Canceled", slog.String("id", taskID.String()))
+	tm.logger.Debug("Future Canceled", slog.String("id", taskID.String()))
 
 	return true
 }
 
-// Status returns current task status. Returns StatusUnknown and
-// ErrTaskNotFound if task doesn't exist.
+// Status returns current future status. Returns StatusUnknown and
+// ErrTaskNotFound if future doesn't exist.
 func (tm *Manager) Status(taskID ID) (Status, error) {
 	value, ok := tm.taskStatuses.Load(taskID)
 	if !ok {
@@ -543,24 +543,24 @@ func (tm *Manager) Status(taskID ID) (Status, error) {
 	return status, nil
 }
 
-// Task retrieves task metadata by ID. Returns partial Task with status
-// if task exists but hasn't completed.
-func (tm *Manager) Task(taskID ID) (Task, error) {
+// Future retrieves future metadata by ID. Returns partial Future with status
+// if future exists but hasn't completed.
+func (tm *Manager) Future(taskID ID) (Future, error) {
 	// First check if the task exists
 	status, ok := tm.taskStatuses.Load(taskID)
 	if !ok {
-		return Task{Status: StatusUnknown.String()}, ErrTaskNotFound
+		return Future{Status: StatusUnknown.String()}, ErrTaskNotFound
 	}
 
-	// Check if there's a result task in the results map
+	// Check if there's a result in the results map
 	if result, ok := tm.tasksResult.Load(taskID); ok {
-		task := result.(Task)
-		task.Status = status.(Status).String()
-		return task, nil
+		future := result.(Future)
+		future.Status = status.(Status).String()
+		return future, nil
 	}
 
-	// Return a task with current status
-	return Task{Status: status.(Status).String()}, nil
+	// Return a future with current status
+	return Future{Status: status.(Status).String()}, nil
 }
 
 // Prune removes completed/failed/canceled tasks from memory. If ttl > 0,
@@ -580,7 +580,7 @@ func (tm *Manager) Prune(ttl time.Duration) int {
 		// Optionally enforce TTL
 		if ttl > 0 {
 			if resultVal, ok := tm.tasksResult.Load(id); ok {
-				task := resultVal.(Task)
+				task := resultVal.(Future)
 				if !task.Time.IsZero() && now.Sub(task.Time) < ttl {
 					return true // skip task, TTL not expired
 				}

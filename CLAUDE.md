@@ -1,51 +1,28 @@
 # FrankenAsync
 
-Two-level concurrent PHP: FrankenPHP threads (true parallelism) + Swow coroutines (cooperative concurrency).
+Concurrent PHP via FrankenPHP threads (true parallelism) with a Go semaphore sliding window.
 
 ## Architecture
 
-- `main.go` — Entry point. Inits FrankenPHP with a configurable thread pool (default 66), auto-prepends `lib/async.php` for Swow coroutine support (unless `FRANKENASYNC_SWOW=0`), includes an inline `/api/comments/{id}` Go endpoint with simulated latency for HTTP mode demos, creates an `http.Handler` that wraps each request with an `asynctask.Manager`, and serves PHP via `frankenphp.ServeHTTP()`.
+- `main.go` — Entry point. Inits FrankenPHP with a configurable thread pool (default 4x CPU cores), includes an inline `/api/comments/{id}` Go endpoint with simulated latency for HTTP mode demos, creates an `http.Handler` that wraps each request with an `asynctask.Manager`, and serves PHP via `frankenphp.ServeHTTP()`. Swow is hardcoded to disabled (`swow.enable=0`).
 - `asynctask/` — Go task manager. Provides `Async()`, `Defer()`, `Await()`, `AwaitAll()`, `AwaitAny()`, and `Cancel()`. Uses a semaphore (`WithWorkerLimit`) to limit concurrent goroutines.
-- `phpext/` — Minimal C extension registering `Frankenphp\Script` and `Frankenphp\Async\Task` PHP classes. C methods call Go exports via CGO. Go exports access the `asynctask.Manager` from the request context.
+- `phpext/` — Minimal C extension registering `Frankenphp\Script` and `Frankenphp\Async\Future` PHP classes. C methods call Go exports via CGO. Go exports access the `asynctask.Manager` from the request context.
 - `examples/` — PHP document root.
-  - `lib/async.php` — Swow coroutine library (auto-prepended). Provides `async()`, `await()`, `defer()`, and utilities (`race`, `any`, `retry`, `parallel`, `throttle`, `sleep`, `timeout`).
-  - `index.php` — Main demo. Splits N tasks into T batches, dispatches each batch as a `Script::async()` to `worker.php`.
-  - `include/worker.php` — Coroutine-powered batch subrequest. Receives batch IDs, runs each as a Swow coroutine.
-  - `include/task.php` — Single blocking task (pure-thread demo, `coroutines=0`).
+  - `index.php` — Main demo. Dispatches N tasks as `Script::async()` calls to `task.php`, Go semaphore handles the sliding window.
+  - `include/task.php` — Single blocking task (simulated or real HTTP I/O).
+  - `lib/async.php` — Structured concurrency helpers: `race()`, `retry()`, `parallel()`, `throttle()`. Plain PHP generators composing on `Script::async()` and `Future` — no Swow, no coroutines.
 
-## Two-Level Concurrency
+## Concurrency Model
 
 ```
 index.php (1 main thread)
-  +- T x Script::async("worker.php")        <- FrankenPHP threads (Level 1: parallelism)
-       +- each: M x Swow coroutines          <- within-thread (Level 2: concurrency)
+  +- N x Script::async("task.php")     <- FrankenPHP threads (true parallelism)
+       +- Go semaphore sliding window  <- queues tasks beyond worker limit
 ```
 
-**Level 1 — Threads:** `Script::async()` → Go subrequest → separate PHP thread. True parallelism. Works with ANY blocking PHP code.
+`Script::async()` dispatches each PHP script to a separate FrankenPHP thread. True parallelism. Works with ANY blocking PHP code. The Go semaphore (`WithWorkerLimit`) controls how many subrequests run simultaneously — tasks beyond the limit queue and execute as slots free up.
 
-**Level 2 — Coroutines:** Within each subrequest, Swow `async()`/`await()` fires multiple coroutines. Only works for Swow-hooked I/O. Multiplies concurrency without more threads.
-
-URL params: `?n=100&threads=10&local=1&coroutines=1`
-
-## Swow: Disabling and Multi-Thread Limitation
-
-### Disabling Swow
-
-Swow can be fully disabled via `FRANKENASYNC_SWOW=0` env var (sets `swow.enable=Off` in PHP ini). This disables all Swow hooks at the C level — no transports are registered, no stream ops are proxied. When disabled, `lib/async.php` is not auto-prepended, so only the blocking mode (`coroutines=0`) works.
-
-Use this for vanilla PHP comparison demos. Benchmark result: **blocking mode performs identically with Swow ON or OFF** (~56x for 500 tasks), confirming Swow is transparent when no coroutines are used.
-
-### Multi-Thread Socket Contention
-
-When Swow is enabled, it hooks all stream I/O globally (`file_get_contents`, `usleep`, `stream_socket_client`, etc.):
-
-1. **Single thread**: Swow handles 200+ concurrent HTTP connections perfectly.
-
-2. **Multi-thread**: When multiple FrankenPHP threads (OS threads) make concurrent HTTP calls simultaneously, Swow's internal event infrastructure contends. The practical limit is ~100 total concurrent sockets across all threads.
-
-3. **Chunking workaround**: HTTP mode in `worker.php` chunks coroutines into batches of 10 per thread to stay under this limit (`10 threads × 10 concurrent = 100 total`). Local mock mode (`usleep`) fires all coroutines at once since it doesn't open real sockets.
-
-This is why HTTP mode shows ~66x speedup vs 100x+ for local mock — the chunking serializes network calls into sequential rounds within each thread.
+URL params: `?n=100&local=1`
 
 ## Build
 
@@ -58,7 +35,14 @@ make bench     # Build + run automated test suite
 
 Build tag: `nowatcher` (required — FrankenPHP's file watcher is not used).
 
-The Go binary requires CGO with PHP headers. Create an `env.yaml` in the project root with `CGO_CFLAGS`, `CGO_CPPFLAGS`, `CGO_LDFLAGS` pointing to your local PHP build. The Makefile requires `env.yaml` to exist before building.
+The Go binary requires CGO with PHP headers. Build PHP and generate `env.yaml`:
+
+```bash
+make php       # Build PHP 8.3 via static-php-cli (ZTS + embed, no Swow)
+make env       # Generate env.yaml from the PHP build
+```
+
+Or create `env.yaml` manually with `CGO_CFLAGS`, `CGO_CPPFLAGS`, `CGO_LDFLAGS` pointing to your local PHP build.
 
 ## Key Patterns
 
@@ -70,20 +54,13 @@ HTTP request → main.go handler
   → asynctask.WithContext(req.Context(), manager)
   → frankenphp.ServeHTTP()
     → PHP: Script::async() → C: go_execute_script_async() → Go: manager.Async()
-    → PHP: Task::awaitAll() → C: go_asynctask_await_all() → Go: manager.AwaitAll()
-    → PHP: Swow async()/await() → coroutines within thread (no Go involvement)
+    → PHP: Future::awaitAll() → C: go_asynctask_await_all() → Go: manager.AwaitAll()
   → manager.Shutdown()
 ```
 
-### Concurrency Model
-
-The semaphore (`WithWorkerLimit`, default 64) controls how many PHP subrequests run simultaneously. Tasks beyond the limit queue in Go goroutines and execute as slots free up (sliding window). Within each subrequest, Swow coroutines provide additional concurrency without consuming threads.
-
 ### Thread Pool
 
-FrankenPHP threads are pre-warmed (`WithNumThreads`, default 66) with scaling disabled (`WithMaxThreads == WithNumThreads`). FrankenPHP becomes unstable above ~70 threads (crashes/hangs after repeated requests) — this was observed in recent versions; earlier versions handled higher thread counts. The default of 66 is the tested safe maximum.
-
-The worker semaphore (`FRANKENASYNC_WORKERS`, default 64) is automatically capped at `numThreads - 2` to reserve threads for the main request and overhead. If a higher value is requested via env var, it is capped with a warning log.
+FrankenPHP threads are pre-warmed (`WithNumThreads`, default 4x CPU cores) with scaling disabled (`WithMaxThreads == WithNumThreads`). The worker semaphore (`FRANKENASYNC_WORKERS`, default `numThreads - 2`) is automatically capped at `numThreads - 2` to reserve threads for the main request and overhead.
 
 ## Conventions
 
@@ -91,4 +68,3 @@ The worker semaphore (`FRANKENASYNC_WORKERS`, default 64) is automatically cappe
 - Keep `main.go` minimal — this is a demo, not a framework
 - The `asynctask/` package has no PHP or FrankenPHP dependencies — it's pure Go
 - The `phpext/` package bridges C ↔ Go ↔ FrankenPHP — all PHP class methods live here
-- The `lib/async.php` library uses `Frankenphp\` namespace

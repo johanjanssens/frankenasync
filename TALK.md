@@ -1,4 +1,4 @@
-# Two-Level Concurrency in PHP
+# Concurrent PHP with FrankenPHP Threads
 
 > Base narrative for FrankenPHP conference talks
 
@@ -7,8 +7,8 @@
 Your PHP scripts are constantly waiting for the database, HTTP requests, or files. Solutions exist,
 but often require rewriting code.
 
-In this talk, I will show you how to push PHP to its limits running scripts 100x faster. The
-ingredients: FrankenPHP threads, Swow coroutines, PHP Generators, a sprinkle of PHP, and a dash
+In this talk, I will show you how to push PHP to its limits running scripts 150x+ faster. The
+ingredients: FrankenPHP threads, a Go semaphore sliding window, a sprinkle of PHP, and a dash
 of Go to orchestrate it all. This approach works for any PHP code both legacy and new, including
 blocking I/O.
 
@@ -30,179 +30,109 @@ Legacy code, blocking libraries, C extensions — none of it fits the async mode
 significant rewrites. The question isn't "how do we expose concurrency to developers?" It's
 "how do we hide concurrency from developers?"
 
-What if you could keep your existing PHP code and still get 100x+ speedup?
+What if you could keep your existing PHP code and still get 150x+ speedup?
 
 ## The Ingredients
 
 - **FrankenPHP threads** — true parallelism for any PHP code, including blocking I/O
-- **Swow coroutines** — cooperative concurrency within each thread, hooks standard PHP I/O
-- **PHP Generators** — the `yield from` pattern for composable async utilities (`race`, `retry`, `parallel`)
+- **Go semaphore** — sliding window that queues tasks beyond the worker limit
 - **A dash of Go** — orchestrates the thread pool, semaphore queue, and task lifecycle
 
-## The Solution: Two Levels
+## The Solution: Thread-Level Parallelism
 
-FrankenPHP threads and Swow coroutines work together — each handling what the other can't.
+FrankenPHP threads provide true parallelism for any PHP code. Each `Script::async()` call dispatches
+a PHP script to a separate thread. A Go semaphore controls how many run simultaneously — tasks
+beyond the limit queue and execute as slots free up (sliding window).
 
 ```
 index.php
-  +- Script::async("worker.php")           <- FrankenPHP thread (Level 1)
-       +- async(fn() => usleep(...))        <- Swow coroutine (Level 2)
-       +- async(fn() => file_get_contents)  <- Swow coroutine (Level 2)
-       +- async(fn() => blocking_c_call())  <- blocks this thread, still works
+  +- Script::async("task.php", ['id' => 1])   <- FrankenPHP thread
+  +- Script::async("task.php", ['id' => 2])   <- FrankenPHP thread
+  +- Script::async("task.php", ['id' => 3])   <- FrankenPHP thread
+  ...
+  +- Future::awaitAll($tasks, "60s")           <- collect results
 ```
 
-**Level 1 — FrankenPHP Threads.** `Script::async()` dispatches a PHP script to a separate thread.
-True parallelism. Works with ANY blocking PHP code — C extensions, legacy libraries, anything.
-No code changes required.
-
-**Level 2 — Swow Coroutines.** Within each thread, `async()`/`await()` fires coroutines that
-share the thread cooperatively. Swow hooks standard PHP I/O (`usleep`, `file_get_contents`,
-`stream_socket_client`, etc.) so they yield instead of block. Multiplies concurrency without
-adding threads.
-
-## Why Both?
-
-Neither level is complete on its own:
-
-- **Threads alone** scale linearly but consume resources. 100 tasks = 100 threads.
-- **Coroutines alone** only work with Swow-hooked I/O. A blocking C extension call stalls
-  all coroutines in that thread.
-- **Together:** threads handle what coroutines can't (blocking C code), coroutines handle what
-  doesn't need a whole thread (I/O). You mix blocking and non-blocking code freely in a single
-  thread — Swow handles part of it, FrankenPHP handles the rest.
-
-The result comes back at the call point. The developer doesn't care which level handled what.
+Any PHP code works — C extensions, legacy libraries, blocking I/O. No code changes required.
+The Go semaphore handles the concurrency transparently.
 
 ## The Numbers
 
 Wall clock stays flat at ~0.5s regardless of task count. Speedup scales linearly.
 
-### Blocking I/O (threads only, no coroutines)
+### Thread Parallelism with Go Semaphore
 
-| Threads | Tasks | Wall  | Speedup |
-|---------|-------|-------|---------|
-| 10      | 10    | 0.5s  | 6x      |
-| 25      | 25    | 0.5s  | 14x     |
-| 50      | 50    | 0.5s  | 29x     |
+| Tasks | Wall  | Speedup  |
+|-------|-------|----------|
+| 10    | 0.5s  | 6x       |
+| 50    | 0.5s  | 29x      |
+| 100   | 0.5s  | 57x      |
+| 250   | 0.5s  | 148x     |
+| 500   | 0.5s  | 277x     |
 
-Threads top out — FrankenPHP becomes unstable above ~70 threads. The safe maximum is 66 threads
-with a 64-worker semaphore, capping pure-thread speedup around 50x.
-
-### With Coroutines (threads + Swow)
-
-| Threads | Coroutines | Tasks | Wall  | Speedup  |
-|---------|-----------|-------|-------|----------|
-| 10      | ~10       | 100   | 0.5s  | **57x**  |
-| 10      | ~25       | 250   | 0.5s  | **148x** |
-| 10      | ~50       | 500   | 0.5s  | **277x** |
-| 25      | ~25       | 625   | 0.5s  | **343x** |
-| 50      | ~50       | 2500  | 0.5s  | **1306x**|
-
-10 threads with coroutines beats 50 pure threads by 10x. Same PHP code.
+The Go semaphore sliding window means you can dispatch far more tasks than threads — they queue
+up and execute as slots free up. 500 tasks with 64 concurrent slots still completes in ~0.5s.
 
 ### With Real HTTP (local API endpoint)
 
-| Threads | Coroutines | Tasks | Wall  | Speedup |
-|---------|-----------|-------|-------|---------|
-| 10      | ~10       | 100   | 0.2s  | **57x** |
-| 10      | ~50       | 500   | 0.8s  | **66x** |
+| Tasks | Wall  | Speedup |
+|-------|-------|---------|
+| 100   | 0.2s  | 57x     |
+| 500   | 0.8s  | 66x     |
 
-HTTP mode is chunked (10 concurrent per thread) due to Swow's multi-thread socket contention.
-Within a single thread Swow handles 200+ concurrent connections fine, but across multiple OS
-threads the practical limit is ~100 total concurrent sockets. Still: 66x with real
-`file_get_contents` HTTP calls, no code changes.
-
-### Swow ON vs OFF (vanilla PHP proof)
-
-| Mode | Swow | Threads | Tasks | Speedup |
-|------|------|---------|-------|---------|
-| Blocking | ON | 500 | 500 | **56x** |
-| Blocking | OFF | 500 | 500 | **56x** |
-
-Set `FRANKENASYNC_SWOW=0` to disable Swow entirely (`swow.enable=Off`). Blocking mode
-performs identically — Swow is fully transparent when you're not using coroutines. This
-proves the thread-level concurrency works with completely vanilla PHP.
+Real `file_get_contents` HTTP calls, no code changes.
 
 ## What the PHP Developer Writes
 
-### Level 1 — Thread dispatch
-
 ```php
 use Frankenphp\Script;
-use Frankenphp\Async\Task;
-
-$task1 = (new Script('api/slow.php'))->async(['id' => 1]);
-$task2 = (new Script('api/fast.php'))->async(['id' => 2]);
-
-$results = Task::awaitAll([$task1, $task2], "5s");
-```
-
-Any PHP script. Any blocking code. Each runs on its own thread.
-
-### Level 2 — Coroutines within a thread
-
-```php
-use function Frankenphp\async;
-use function Frankenphp\await;
+use Frankenphp\Async\Future;
 
 $tasks = [];
-$tasks[] = async(fn() => file_get_contents('https://api.example.com/1'));
-$tasks[] = async(fn() => file_get_contents('https://api.example.com/2'));
-$tasks[] = async(function() {
-    usleep(100000);  // Swow hooks this - yields to other coroutines
-    return 'done';
-});
-
-$results = await($tasks, "5s");
-```
-
-Standard PHP functions. Swow hooks them transparently.
-
-### Generator-based utilities
-
-```php
-use function Frankenphp\Async\race;
-use function Frankenphp\Async\retry;
-use function Frankenphp\Async\parallel;
-
-// Race: first to complete wins
-$result = yield from race([fn() => fetch('/fast'), fn() => fetch('/slow')], "5s");
-
-// Retry with exponential backoff
-$result = yield from retry(3, fn() => fetch('/flaky'), "1s", 2.0);
-
-// Parallel with concurrency limit
-$results = yield from parallel($callables, concurrency: 5);
-```
-
-PHP Generators (`yield from`) make these composable — no promises, no callbacks.
-
-### Two levels combined
-
-```php
-// Split 500 tasks across 10 threads, ~50 coroutines each
-$batches = array_chunk(range(1, 500), 50);
-
-$tasks = [];
-foreach ($batches as $batch) {
-    // Level 1: each batch gets its own thread
-    $tasks[] = (new Script('worker.php'))->async([
-        'batch_ids' => json_encode($batch),
-    ]);
+foreach ($ids as $id) {
+    $tasks[] = (new Script('task.php'))->async(['id' => $id]);
 }
 
-// worker.php internally runs Level 2 coroutines per batch item
-$results = Task::awaitAll($tasks, "30s");
+$results = Future::awaitAll($tasks, "30s");
 ```
 
-10 threads. 500 tasks. 277x speedup. The async wrapper hides all the complexity.
+Any PHP script. Any blocking code. Each runs on its own thread. The Go semaphore handles
+queuing transparently.
+
+## Structured Concurrency Helpers
+
+Composable generators on top of `Script::async()` and `Future` — no Swow, no coroutines:
+
+```php
+use function Frankenphp\Async\{race, retry, parallel, throttle};
+
+// Race: first wins, losers get cancelled
+$result = yield from race([
+    (new Script('primary.php'))->async(),
+    (new Script('fallback.php'))->async(),
+], "5s");
+
+// Retry with exponential backoff
+$result = yield from retry(3, fn() => (new Script('flaky.php'))->async(), "1s", 2.0);
+
+// Parallel with sliding window concurrency limit
+$results = yield from parallel($callables, concurrency: 5);
+
+// Throttle — stream results in batches (generator)
+foreach (throttle($ids, 'task.php', batch: 50) as $result) {
+    // process each result as batches complete
+}
+```
+
+Generators are the perfect fit — `throttle` streams results batch by batch instead of collecting
+everything into memory. `yield from` lets you compose helpers together. No event loop, no
+framework — just PHP.
 
 ## Key Takeaway
 
-You don't have to choose between threads and coroutines. FrankenPHP threads handle anything that
-blocks, Swow coroutines multiply concurrency for hookable I/O, PHP Generators make the async
-utilities composable, and a thin Go layer orchestrates it all. Mix and match in the same request,
-collect results at the call point. Normal PHP code, legacy-friendly, 100x+ speedup.
+You don't have to rewrite your PHP code to get massive speedups. FrankenPHP threads handle anything
+that blocks, and a thin Go layer with a semaphore sliding window orchestrates it all. Normal PHP
+code, legacy-friendly, 150x+ speedup.
 
 ---
 

@@ -1,4 +1,5 @@
 dist/
+build/.php/
 .DS_Store
 .idea/
 .vscode/
@@ -6,3 +7,4 @@ __debug_bin
 *.log
 .env
 env.yaml
+slides/

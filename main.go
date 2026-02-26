@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -50,10 +51,10 @@ func main() {
 	phpext.DocumentRoot = docRoot
 
 	// Thread pool and worker limit (configurable via env)
-	// FrankenPHP becomes unstable above ~70 threads, so default to 66.
-	// The worker semaphore is capped at numThreads-2 to reserve threads
-	// for the main request and overhead.
-	numThreads := 66
+	// Default to 4x CPU cores. The worker semaphore is capped at
+	// numThreads-2 to reserve threads for the main request and overhead.
+	numCPU := runtime.NumCPU()
+	numThreads := numCPU * 4
 	if v := os.Getenv("FRANKENASYNC_THREADS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			numThreads = n
@@ -61,7 +62,7 @@ func main() {
 	}
 
 	maxWorkers := numThreads - 2
-	workerLimit := 64
+	workerLimit := maxWorkers
 	if v := os.Getenv("FRANKENASYNC_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			workerLimit = n
@@ -72,24 +73,12 @@ func main() {
 		workerLimit = maxWorkers
 	}
 
-	// Swow can be disabled via env var for vanilla PHP comparison
-	swowEnabled := "1"
-	if v := os.Getenv("FRANKENASYNC_SWOW"); v == "0" {
-		swowEnabled = "0"
-		logger.Info("Swow disabled — vanilla PHP mode")
-	}
-
 	phpIni := map[string]string{
-		"opcache.enable":              "1",
+		"opcache.enable":               "1",
 		"opcache.enable_file_override": "1",
-		"opcache.validate_timestamps": "0",
-		"include_path":                docRoot,
-		"swow.enable":                 swowEnabled,
-	}
-
-	// Only auto-prepend async.php when Swow is enabled
-	if swowEnabled == "1" {
-		phpIni["auto_prepend_file"] = filepath.Join(docRoot, "lib", "async.php")
+		"opcache.validate_timestamps":  "0",
+		"include_path":                 docRoot,
+		"swow.enable":                  "0",
 	}
 
 	// Init FrankenPHP
@@ -193,7 +182,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("Starting FrankenAsync server", "addr", addr, "docroot", docRoot)
+		logger.Info("Starting FrankenAsync server", "addr", addr, "threads", numThreads, "workers", workerLimit, "cpus", numCPU)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("Server error", "error", err)
 			os.Exit(1)

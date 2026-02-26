@@ -7,7 +7,8 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 .PHONY: build
 build:
 	if [ ! -f $(ROOT)/env.yaml ]; then
-		echo "Error: env.yaml not found. Create it with your PHP CGO flags."
+		echo "Error: env.yaml not found."
+		echo "Run 'make php' to build PHP, then 'make env' to generate env.yaml."
 		echo "See README.md for details."
 		exit 1
 	fi
@@ -35,3 +36,16 @@ clean:
 .PHONY: tidy
 tidy:
 	cd $(ROOT) && go mod tidy
+
+# PHP build targets (delegated to build/php/Makefile)
+.PHONY: php
+php:
+	$(MAKE) -f $(ROOT)/build/php/Makefile download build
+
+.PHONY: env
+env:
+	$(MAKE) -f $(ROOT)/build/php/Makefile env
+
+.PHONY: php-clean
+php-clean:
+	$(MAKE) -f $(ROOT)/build/php/Makefile clean=1 clean

@@ -918,7 +918,7 @@ func TestStress_Shutdown(t *testing.T) {
 
 	// Verify all tasks are cleaned up
 	for _, id := range taskIDs {
-		_, err := tm.Task(id)
+		_, err := tm.Future(id)
 		if err == nil {
 			t.Errorf("expected task %s to be cleaned up after shutdown", id.String())
 		}

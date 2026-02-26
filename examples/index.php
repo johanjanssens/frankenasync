@@ -1,72 +1,40 @@
 <?php
 use Frankenphp\Script;
-use Frankenphp\Async\Task;
+use Frankenphp\Async\Future;
 
 header('Content-Type: text/html');
 
 // Configuration
-$total      = (int)($_GET['n'] ?? 100);          // Total tasks (comment fetches)
-$threads    = (int)($_GET['threads'] ?? 10);     // FrankenPHP threads (batches)
-$local      = (int)($_GET['local'] ?? 1);        // 1 = local mock, 0 = external API
-$coroutines = (int)($_GET['coroutines'] ?? 1);   // 0 = blocking IO (1 task per thread)
+$total = (int)($_GET['n'] ?? 100);       // Total tasks (comment fetches)
+$local = (int)($_GET['local'] ?? 1);     // 1 = local mock, 0 = external API
 
 // Wrap IDs to 1-500 range for JSONPlaceholder API
 $allIds = array_map(fn($id) => (($id - 1) % 500) + 1, range(1, $total));
 
-if ($coroutines) {
-    // Two-level: batch tasks across threads, coroutines within each thread
-    $threads = min($threads, $total);
-    $batchSize = (int)ceil($total / $threads);
-    $batches = array_chunk($allIds, $batchSize);
-    $actualThreads = count($batches);
-    $coroutinesPerThread = $batchSize;
-
-    $tasks = [];
-    foreach ($batches as $batch) {
-        $tasks[] = (new Script('include/worker.php'))->async([
-            "batch_ids" => json_encode($batch),
-            "local"     => $local,
-        ]);
-    }
-} else {
-    // Pure threads: 1 task per thread, blocking IO, no coroutines
-    $actualThreads = $total;
-    $coroutinesPerThread = 0;
-
-    $tasks = [];
-    foreach ($allIds as $id) {
-        $tasks[] = (new Script('include/task.php'))->async([
-            "id"    => $id,
-            "local" => $local,
-        ]);
-    }
+// Pure threads: 1 task per thread, Go semaphore handles the sliding window
+$tasks = [];
+foreach ($allIds as $id) {
+    $tasks[] = (new Script('include/task.php'))->async([
+        "id"    => $id,
+        "local" => $local,
+    ]);
 }
 
 // Await all threads
-$results = Task::awaitAll($tasks, "60s");
+$results = Future::awaitAll($tasks, "60s");
 
-// Flatten results from all batches/threads
+// Collect results
 $comments = [];
 foreach ($results as $result) {
     $decoded = is_string($result) ? json_decode($result, true) : $result;
     $body = $decoded["body"] ?? '';
     $parsed = json_decode($body, true);
-    if (is_array($parsed)) {
-        if (isset($parsed['id'])) {
-            // Single result from task.php
-            $comments[] = $parsed;
-        } else {
-            // Array of results from worker.php
-            foreach ($parsed as $comment) {
-                if (is_array($comment) && isset($comment['id'])) {
-                    $comments[] = $comment;
-                }
-            }
-        }
+    if (is_array($parsed) && isset($parsed['id'])) {
+        $comments[] = $parsed;
     }
 }
 
-$mode = $coroutinesPerThread ? "{$actualThreads} threads &times; ~{$coroutinesPerThread} coroutines" : "{$actualThreads} threads (blocking)";
+$mode = "{$total} tasks";
 ?>
 <!DOCTYPE html>
 <html>
@@ -286,12 +254,11 @@ $mode = $coroutinesPerThread ? "{$actualThreads} threads &times; ~{$coroutinesPe
         </div>
     </div>
     <div class="hero-nav">
-        <a href="?n=<?= $total ?>&threads=<?= $threads ?>&local=<?= $local ? 0 : 1 ?><?= $coroutines ? '' : '&coroutines=0' ?>"><?= $local ? 'local mock' : 'external API' ?> &#x21C4;</a>
-        &middot; <a href="?n=100&threads=10&local=<?= $local ?>">coroutines</a>
-        &middot; <a href="?n=100&coroutines=0&local=<?= $local ?>">blocking</a>
-        &middot; <a href="?n=500&threads=10&local=<?= $local ?>">500 tasks</a>
-        &middot; <a href="?n=50&threads=1&local=<?= $local ?>">1 thread / 50 coroutines</a>
-        &middot; <a href="?n=50&coroutines=0&local=<?= $local ?>">50 threads / blocking</a>
+        <a href="?n=<?= $total ?>&local=<?= $local ? 0 : 1 ?>"><?= $local ? 'external API' : 'local mock' ?> &#x21C4;</a>
+        &middot; <a href="?n=50&local=<?= $local ?>">50</a>
+        &middot; <a href="?n=100&local=<?= $local ?>">100</a>
+        &middot; <a href="?n=250&local=<?= $local ?>">250</a>
+        &middot; <a href="?n=500&local=<?= $local ?>">500</a>
     </div>
 </div>
 

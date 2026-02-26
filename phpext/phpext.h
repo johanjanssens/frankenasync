@@ -45,75 +45,75 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenasync_script_execute, 0, 
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, server, IS_ARRAY, 1, "[]")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_frankenasync_script_async, 0, 0, Frankenphp\\Async\\Task, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_frankenasync_script_async, 0, 0, Frankenphp\\Async\\Future, 0)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, app, IS_ARRAY, 1, "[]")
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, server, IS_ARRAY, 1, "[]")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_frankenasync_script_defer, 0, 0, Frankenphp\\Async\\Task, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_frankenasync_script_defer, 0, 0, Frankenphp\\Async\\Future, 0)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, app, IS_ARRAY, 1, "[]")
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, server, IS_ARRAY, 1, "[]")
 ZEND_END_ARG_INFO()
 
 /* ============================================================================
- * ASYNC TASK CLASS
+ * ASYNC FUTURE CLASS
  * ============================================================================ */
 
-/* AsyncTask initialization */
-int frankenasync_asynctask_minit(void);
+/* AsyncFuture initialization */
+int frankenasync_asyncfuture_minit(void);
 
-/* Retrieve the asynctask_object pointer from a zval */
-#define Z_FRANKENASYNC_ASYNCTASK_OBJ_P(zv) frankenasync_asynctask_from_obj(Z_OBJ_P(zv))
+/* Retrieve the asyncfuture_object pointer from a zval */
+#define Z_FRANKENASYNC_ASYNCFUTURE_OBJ_P(zv) frankenasync_asyncfuture_from_obj(Z_OBJ_P(zv))
 
-/* Task class methods */
-PHP_METHOD(Async_Task, __construct);
-PHP_METHOD(Async_Task, getId);
-PHP_METHOD(Async_Task, await);
-PHP_METHOD(Async_Task, awaitAll);
-PHP_METHOD(Async_Task, awaitAny);
-PHP_METHOD(Async_Task, cancel);
-PHP_METHOD(Async_Task, getStatus);
-PHP_METHOD(Async_Task, getDuration);
-PHP_METHOD(Async_Task, getError);
+/* Future class methods */
+PHP_METHOD(Async_Future, __construct);
+PHP_METHOD(Async_Future, getId);
+PHP_METHOD(Async_Future, await);
+PHP_METHOD(Async_Future, awaitAll);
+PHP_METHOD(Async_Future, awaitAny);
+PHP_METHOD(Async_Future, cancel);
+PHP_METHOD(Async_Future, getStatus);
+PHP_METHOD(Async_Future, getDuration);
+PHP_METHOD(Async_Future, getError);
 
-/* Helper to create Task object from C */
-void frankenasync_create_asynctask_object(zval *return_value, const char *task_id);
+/* Helper to create Future object from C */
+void frankenasync_create_asyncfuture_object(zval *return_value, const char *task_id);
 
-/* Task class argument info */
-ZEND_BEGIN_ARG_INFO_EX(arginfo_asynctask___construct, 0, 0, 1)
+/* Future class argument info */
+ZEND_BEGIN_ARG_INFO_EX(arginfo_asyncfuture___construct, 0, 0, 1)
     ZEND_ARG_TYPE_INFO(0, taskId, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_getId, 0, 0, IS_STRING, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_getId, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_asynctask_await, 0, 0, MAY_BE_ARRAY | MAY_BE_STRING | MAY_BE_LONG | MAY_BE_DOUBLE | MAY_BE_NULL)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_asyncfuture_await, 0, 0, MAY_BE_ARRAY | MAY_BE_STRING | MAY_BE_LONG | MAY_BE_DOUBLE | MAY_BE_NULL)
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_awaitAll, 0, 1, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAll, 0, 1, IS_ARRAY, 0)
     ZEND_ARG_TYPE_INFO(0, tasks, IS_ARRAY, 0)
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_awaitAny, 0, 1, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAny, 0, 1, IS_ARRAY, 0)
     ZEND_ARG_TYPE_INFO(0, tasks, IS_ARRAY, 0)
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_cancel, 0, 0, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_cancel, 0, 0, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_asynctask_getStatus, 0, 0, Frankenphp\\Async\\Task\\Status, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_asyncfuture_getStatus, 0, 0, Frankenphp\\Async\\Future\\Status, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_getDuration, 0, 0, IS_DOUBLE, 1)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_getDuration, 0, 0, IS_DOUBLE, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_getError, 0, 0, IS_STRING, 1)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_getError, 0, 0, IS_STRING, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asynctask_status___toString, 0, 0, IS_STRING, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_status___toString, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 /* ============================================================================

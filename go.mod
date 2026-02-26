@@ -3,7 +3,7 @@ module frankenasync
 go 1.26.0
 
 require (
-	github.com/dunglas/frankenphp v1.11.2
+	github.com/dunglas/frankenphp v1.11.3
 	github.com/joho/godotenv v1.5.1
 	github.com/lmittmann/tint v1.1.3
 	github.com/rs/xid v1.6.0
@@ -18,7 +18,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dunglas/mercure v0.21.8 // indirect
 	github.com/dunglas/skipfilter v1.0.0 // indirect
-	github.com/e-dant/watcher v0.0.0-20260202035023-10268e78355f // indirect
+	github.com/e-dant/watcher v0.0.0-20260223030516-06f84a1314be // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -64,4 +64,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/dunglas/frankenphp v1.11.2 => ../frankenphp
+replace github.com/dunglas/frankenphp v1.11.3 => ../frankenphp
