@@ -8,6 +8,8 @@ FrankenAsync dispatches PHP scripts as internal subrequests to separate FrankenP
 
 > **Note**: This is a companion repo for my FrankenPHP conference talks. It's meant as inspiration and a reference implementation, not a production framework. Feel free to explore, fork, and adapt the patterns for your own projects.
 
+For common questions, see the [FAQ](FAQ.md).
+
 ### Talks
 
 - [PHP 150x Faster, Still Legacy-Friendly](https://confoo.ca/en/2026/session/php-150x-faster-still-legacy-friendly) — ConFoo 2026 ([slides](https://gamma.app/docs/PHP-150x-Faster-Still-Legacy-Friendly-wozvte56hx7i0ku))
@@ -87,7 +89,7 @@ Mix, nest, and chain patterns freely — retry inside a race, throttle with para
 
 ## FrankenPHP Fork
 
-FrankenAsync requires a [fork of FrankenPHP](https://github.com/nicholasgasior/frankenphp) that adds APIs not available in upstream FrankenPHP. The `Frankenphp\Script` and `Frankenphp\Async\Future` PHP classes are implemented as a C extension that calls back into Go to reach the per-request task manager — upstream FrankenPHP doesn't expose the thread plumbing to make that possible.
+FrankenAsync currently requires a [fork of FrankenPHP](https://github.com/johanjanssens/frankenphp) that adds APIs not yet available in upstream FrankenPHP — hopefully that changes! The `Frankenphp\Script` and `Frankenphp\Async\Future` PHP classes are implemented as a C extension that calls back into Go to reach the per-request task manager — upstream FrankenPHP doesn't expose the thread plumbing to make that possible.
 
 FrankenPHP already provides `frankenphp.RegisterExtension(ptr)` to register C `zend_module_entry` extensions — FrankenAsync uses this to register the `Script` and `Future` PHP classes.
 
@@ -121,7 +123,7 @@ replace github.com/dunglas/frankenphp v1.11.3 => ../frankenphp
 ### Prerequisites
 
 - Go 1.26+
-- The [FrankenPHP fork](https://github.com/nicholasgasior/frankenphp) cloned as a sibling directory (`../frankenphp`)
+- The [FrankenPHP fork](https://github.com/johanjanssens/frankenphp) cloned as a sibling directory (`../frankenphp`)
 
 ### Build PHP
 
