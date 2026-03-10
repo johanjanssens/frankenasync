@@ -39,8 +39,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Resolve document root
-	docRoot, err := filepath.Abs("examples")
+	// Resolve document root (configurable via FRANKENASYNC_DOCROOT)
+	docRootRel := "examples"
+	if v := os.Getenv("FRANKENASYNC_DOCROOT"); v != "" {
+		docRootRel = v
+	}
+	docRoot, err := filepath.Abs(docRootRel)
 	if err != nil {
 		logger.Error("Failed to resolve document root", "error", err)
 		os.Exit(1)
@@ -141,9 +145,23 @@ func main() {
 			return
 		}
 
-		// Rewrite directory requests to index.php
-		if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, "/") {
-			r.URL.Path = r.URL.Path + "index.php"
+		// Filesystem-based routing:
+		// 1. Static file (non-.php) → serve directly
+		// 2. PHP file → pass to FrankenPHP
+		// 3. Directory → try index.php inside it
+		// 4. Not found → rewrite to /index.php (front controller)
+		cleanPath := filepath.Clean(r.URL.Path)
+		filePath := filepath.Join(docRoot, cleanPath)
+
+		if info, err := os.Stat(filePath); err == nil {
+			if info.IsDir() {
+				r.URL.Path = cleanPath + "/index.php"
+			} else if !strings.HasSuffix(cleanPath, ".php") {
+				http.ServeFile(w, r, filePath)
+				return
+			}
+		} else {
+			r.URL.Path = "/index.php"
 		}
 
 		// Create async task manager for this request

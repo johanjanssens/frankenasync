@@ -1,5 +1,6 @@
 dist/
 build/.php/
+wordpress/
 .DS_Store
 .idea/
 .vscode/
