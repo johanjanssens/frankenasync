@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"frankenasync/asynctask"
-	"frankenasync/phpext"
+	"github.com/johanjanssens/frankenasync/asynctask"
+	"github.com/johanjanssens/frankenasync/phpext"
 
 	"github.com/dunglas/frankenphp"
 	"github.com/joho/godotenv"
