@@ -1,4 +1,4 @@
-module frankenasync
+module github.com/johanjanssens/frankenasync
 
 go 1.26.0
 

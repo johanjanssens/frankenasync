@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"frankenasync/asynctask"
+	"github.com/johanjanssens/frankenasync/asynctask"
 
 	"github.com/dunglas/frankenphp"
 
