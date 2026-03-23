@@ -125,34 +125,23 @@ replace github.com/dunglas/frankenphp v1.11.3 => ../frankenphp
 - Go 1.26+
 - The [FrankenPHP fork](https://github.com/johanjanssens/frankenphp) cloned as a sibling directory (`../frankenphp`)
 
-### Build PHP
-
-FrankenAsync requires a ZTS (thread-safe) PHP build with embed support. The repo includes a Makefile that uses [static-php-cli](https://static-php.dev) to build PHP automatically:
-
-```bash
-make php     # Download static-php-cli + build PHP 8.3 (ZTS, embed)
-make env     # Generate env.yaml from the PHP build
-```
-
-This builds a minimal PHP with the extensions needed for the demo. The PHP build is cached in `build/.php/` — subsequent runs skip the build if `libphp.a` exists.
-
-To rebuild from scratch:
-
-```bash
-make php-clean   # Remove cached downloads and build artifacts
-make php         # Rebuild
-make env         # Regenerate env.yaml
-```
-
 ### Build & Run
 
 ```bash
-make build   # Build the binary (dist/frankenasync)
-make run     # Build + start the server on :8081
-make bench   # Build + run automated test suite
+make php        # Build PHP 8.3 (ZTS, embed) via static-php-cli (one-time)
+make env        # Generate env.yaml with CGO flags from the PHP build
+make build      # Build the binary (dist/frankenasync)
+make run        # Build + start the server on :8081
+make bench      # Build + run automated test suite
 ```
 
-Build tag `nowatcher` is required (set via `GOFLAGS` in `env.yaml`).
+The PHP build is cached in `build/.php/` — subsequent runs skip the build if `libphp.a` exists. To rebuild PHP from scratch:
+
+```bash
+make php-clean  # Remove cached downloads and build artifacts
+make php        # Rebuild
+make env        # Regenerate env.yaml
+```
 
 ### Manual Setup
 
@@ -172,7 +161,7 @@ The CGO flags must point to your PHP build's include headers and libraries. PHP 
 
 ### GoLand
 
-Configure GoLand to load `env.yaml` as environment variables.
+Install the [EnvFile](https://plugins.jetbrains.com/plugin/7861-envfile) plugin, then in your Run Configuration enable EnvFile and add `env.yaml` to load the CGO flags automatically.
 
 ### Environment Variables
 

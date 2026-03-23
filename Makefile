@@ -14,12 +14,25 @@ build:
 	fi
 
 	cd $(ROOT)
-	CGO_ENABLED=1 go build -tags nowatcher -o dist/frankenasync .
+	while IFS= read -r line; do
+		key="$${line%%:*}"
+		value="$${line#*: \"}"
+		value="$${value%\"}"
+		[ -n "$$key" ] && export "$$key=$$value"
+	done < env.yaml
+	go build -tags nowatcher -o dist/frankenasync .
 	echo "Built dist/frankenasync"
 
 .PHONY: run
 run: build
-	cd $(ROOT) && ./dist/frankenasync
+	cd $(ROOT)
+	while IFS= read -r line; do
+		key="$${line%%:*}"
+		value="$${line#*: \"}"
+		value="$${value%\"}"
+		[ -n "$$key" ] && export "$$key=$$value"
+	done < env.yaml
+	./dist/frankenasync
 
 .PHONY: test
 test:

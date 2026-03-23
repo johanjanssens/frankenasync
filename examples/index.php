@@ -21,7 +21,7 @@ foreach ($allIds as $id) {
 }
 
 // Await all threads
-$results = Future::awaitAll($tasks, "60s");
+$results = Future::awaitAll($tasks, "x");
 
 // Collect results
 $comments = [];
