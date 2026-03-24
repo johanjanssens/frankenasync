@@ -120,12 +120,33 @@ replace github.com/dunglas/frankenphp v1.11.3 => ../frankenphp
 
 ## Quick Start
 
-### Prerequisites
+### Docker (recommended)
+
+```bash
+docker build -t frankenasync .
+docker run -p 8081:8081 frankenasync
+```
+
+The multi-stage Dockerfile handles everything — PHP build, FrankenPHP fork, and the host binary. Open `http://localhost:8081` to see the demos.
+
+The PHP build stage uses [static-php-cli](https://github.com/crazywhalecc/static-php-cli) which can download pre-built libraries from GitHub instead of compiling from source. This requires a GitHub token to avoid API rate limits:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) docker build \
+    --secret id=github_token,env=GITHUB_TOKEN \
+    -t frankenasync .
+```
+
+Without the token the build still works — it just compiles all libraries from source, which takes longer.
+
+### Local Build
+
+#### Prerequisites
 
 - Go 1.26+
 - The [FrankenPHP fork](https://github.com/johanjanssens/frankenphp) cloned as a sibling directory (`../frankenphp`)
 
-### Build & Run
+#### Build & Run
 
 ```bash
 make php        # Build PHP 8.3 (ZTS, embed) via static-php-cli (one-time)
