@@ -31,7 +31,7 @@ RUN ARCH=$(uname -m) && \
     chmod +x spc
 
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    ./spc doctor --auto-fix && \not
+    ./spc doctor --auto-fix && \
     ./spc download \
         --with-php=${PHP_VERSION} \
         --for-extensions="${PHP_EXTENSIONS}" \
