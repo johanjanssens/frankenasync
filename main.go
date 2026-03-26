@@ -50,9 +50,9 @@ func main() {
 	phpext.Register()
 	phpext.DocumentRoot = docRoot
 
-	// Thread pool and worker limit (configurable via env)
-	// Default to 4x CPU cores. The worker semaphore is capped at
-	// numThreads-2 to reserve threads for the main request and overhead.
+	// Thread pool: starts with numThreads, autoscales up to maxThreads under load.
+	// The worker semaphore is capped at maxThreads-2 so subrequests flow to
+	// FrankenPHP and trigger autoscaling when threads are saturated.
 	numCPU := runtime.NumCPU()
 	numThreads := numCPU * 4
 	if v := os.Getenv("FRANKENASYNC_THREADS"); v != "" {
@@ -61,16 +61,16 @@ func main() {
 		}
 	}
 
-	maxWorkers := numThreads - 2
-	workerLimit := maxWorkers
+	maxThreads := numThreads * 4
+	workerLimit := maxThreads - 2
 	if v := os.Getenv("FRANKENASYNC_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			workerLimit = n
 		}
 	}
-	if workerLimit > maxWorkers {
-		logger.Warn("Capping worker limit to thread pool size", "requested", workerLimit, "capped", maxWorkers)
-		workerLimit = maxWorkers
+	if workerLimit > maxThreads-2 {
+		logger.Warn("Capping worker limit to max thread pool size", "requested", workerLimit, "capped", maxThreads-2)
+		workerLimit = maxThreads - 2
 	}
 
 	phpIni := map[string]string{
@@ -84,7 +84,7 @@ func main() {
 	// Init FrankenPHP
 	initOptions := []frankenphp.Option{
 		frankenphp.WithNumThreads(numThreads),
-		frankenphp.WithMaxThreads(numThreads),
+		frankenphp.WithMaxThreads(maxThreads),
 		frankenphp.WithLogger(logger),
 		frankenphp.WithPhpIni(phpIni),
 	}
