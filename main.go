@@ -81,10 +81,13 @@ func main() {
 		"swow.enable":                  "0",
 	}
 
-	// Init FrankenPHP
+	// Init FrankenPHP with ImmediatePolicy for instant thread scaling.
+	// Internal async subrequests are tagged "async" (see phpext) so the policy
+	// can differentiate them from external HTTP traffic.
 	initOptions := []frankenphp.Option{
 		frankenphp.WithNumThreads(numThreads),
 		frankenphp.WithMaxThreads(maxThreads),
+		frankenphp.WithScalingPolicy(frankenphp.NewImmediateScalingPolicy()),
 		frankenphp.WithLogger(logger),
 		frankenphp.WithPhpIni(phpIni),
 	}

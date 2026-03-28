@@ -118,6 +118,7 @@ func executeScript(ctx context.Context, sr *scriptRequest) (*scriptResult, error
 	reqOpts := []frankenphp.RequestOption{
 		frankenphp.WithRequestEnv(envCGI),
 		frankenphp.WithOriginalRequest(origReq),
+		frankenphp.WithRequestType(frankenphp.RequestTypeAsync),
 	}
 	if DocumentRoot != "" {
 		reqOpts = append(reqOpts, frankenphp.WithRequestResolvedDocumentRoot(DocumentRoot))
