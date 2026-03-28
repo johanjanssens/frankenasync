@@ -176,8 +176,11 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Start server in goroutine
@@ -185,7 +188,7 @@ func main() {
 		logger.Info("Starting FrankenAsync server", "addr", addr, "threads", numThreads, "workers", workerLimit, "cpus", numCPU)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("Server error", "error", err)
-			os.Exit(1)
+			cancel()
 		}
 	}()
 
@@ -193,7 +196,9 @@ func main() {
 	<-ctx.Done()
 	logger.Info("Shutting down...")
 
-	if err := server.Shutdown(context.Background()); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Failed to shutdown server", "error", err)
 	}
 }

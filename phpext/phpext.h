@@ -8,6 +8,7 @@
 #include <php.h>
 #include <Zend/zend_types.h>
 
+#define FRANKENASYNC_VERSION "0.1.0"
 #define FRANKENASYNC_JSON_DEPTH 512
 
 /* ============================================================================
@@ -37,7 +38,7 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_frankenasync_script_construct, 0, 0, 1)
     ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, ini, IS_ARRAY, 1, "[]")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenasync_script_get_name, 0, 0, IS_STRING, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenasync_script_get_name, 0, 0, IS_STRING, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenasync_script_execute, 0, 0, IS_ARRAY, 0)
@@ -91,12 +92,12 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_asyncfuture_await, 0, 0, MAY_BE_
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAll, 0, 1, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAll, 0, 1, IS_ARRAY, 1)
     ZEND_ARG_TYPE_INFO(0, tasks, IS_ARRAY, 0)
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAny, 0, 1, IS_ARRAY, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_asyncfuture_awaitAny, 0, 1, IS_ARRAY, 1)
     ZEND_ARG_TYPE_INFO(0, tasks, IS_ARRAY, 0)
     ZEND_ARG_TYPE_MASK(0, timeout, MAY_BE_LONG | MAY_BE_STRING, "0")
 ZEND_END_ARG_INFO()

@@ -85,7 +85,7 @@ static zend_module_entry frankenasync_module_entry = {
     frankenasync_rinit,
     frankenasync_rshutdown,
     NULL, /* minfo */
-    "0.1.0",
+    FRANKENASYNC_VERSION,
     STANDARD_MODULE_PROPERTIES
 };
 
@@ -144,6 +144,7 @@ int frankenasync_script_minit(void)
     memcpy(&script_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
     script_object_handlers.offset = XtOffsetOf(script_object, std);
     script_object_handlers.free_obj = script_free_object;
+    script_object_handlers.clone_obj = NULL;
 
     return SUCCESS;
 }
@@ -594,6 +595,7 @@ int frankenasync_asyncfuture_minit(void)
     memcpy(&asyncfuture_object_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
     asyncfuture_object_handlers.offset = XtOffsetOf(frankenasync_asyncfuture_object, std);
     asyncfuture_object_handlers.free_obj = asyncfuture_free_object;
+    asyncfuture_object_handlers.clone_obj = NULL;
 
     return SUCCESS;
 }
